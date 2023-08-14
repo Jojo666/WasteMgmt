@@ -1,0 +1,453 @@
+---
+title: "Analyzing the Efficiency of Municipal Waste Management"
+output:
+  html_document:
+    df_print: paged
+---
+
+Municipal waste management is crucial for sustainable urban development. Efficient waste management can lead to economic savings, reduced environmental impact, and improved public health. With its diverse regions and varied urbanization levels, the target country provides an ideal case study to explore the factors influencing the efficiency of waste management.
+
+table for columns description -
+
+Variable (Label)
+region (Region)
+province Province
+name (Name of municipality)
+tc (Cost per capita eur)
+cres residual cost per capita
+csor Sorted cost per caputa
+istat National code
+area km2
+pop population
+alt altitude m.s.l.
+isle dummy municipality on isle
+sea dummy coastal municipality
+pden population density (people per km2)
+wden waste per km2
+urb urbanization index (1 low, 3 high)
+fee fee scheme
+d_fee dmmy PAYT
+sample Reg with PAYT
+organic organic %
+paper paper%
+glass glass %
+wood wood %
+metal metal %
+plastic plastic %
+raee raee %
+texile texile %
+other other %
+msw_so msw sorted kg
+msw_un msw unsorted kg
+msw Municipal solid waste kg
+sor Share of sorther waste
+geo 1 South, 2 Center, 3 North
+roads Km of roads within the municipality
+s_wteregio Share of sw sent to W2E plants - regional figure
+s_landfill share of waste to landifil
+gdp Municipal revenues EUR (p) - log
+proads People per km of roads (log)
+wage Taxable income EUR (p) - log
+finance Municipal revenues EUR (p) - log
+
+
+```{r}
+
+library(tidyverse)
+
+setwd("/Users/minervasingh/Documents/Waste")
+
+df=read.csv("public_data_waste_fee.csv")
+
+head(df)
+
+#Understand the structure of the data
+
+str(df)
+```
+
+```{r}
+summary(df)
+```
+
+```{r}
+# identify data with missing values
+names(which(sapply(df, function(x) any(is.na(x)))))
+
+
+```
+```{r}
+
+df=na.omit(df)
+
+s=summary(df)
+
+```
+
+Correlation between variables
+
+```{r}
+
+# correlation
+data_num2 <- select_if(df, is.numeric)             # Subset numeric columns 
+
+# compute correlataion between numeric variables
+c= cor(df[, unlist(lapply(df, is.numeric))])    # Properly apply cor  
+
+
+library(corrplot)
+
+# Insignificant correlation are crossed
+col<- colorRampPalette(c("blue", "white", "red"))(20)
+heatmap(x = c, col = col, symm = TRUE)
+
+
+```
+
+
+Aims:
+
+(1) To understand the relationship between waste composition, urbanization, population density, and waste management costs in Italian municipalities.
+(2) To identify best practices in waste management across different regions and propose recommendations for less efficient municipalities.
+ (3) To develop a predictive model that estimates waste management costs based on socio-economic and geographical factors.
+
+
+Understand the relationship between waste composition, urbanization, population density, and waste management costs in municipalities.
+
+```{r}
+  
+df$urb=as.factor(df$urb)
+
+df %>% group_by(urb)
+
+```
+
+For urbanisation levels 1, 2 and 3
+
+```{r}
+
+urb1=subset(df,urb=="1")
+urb2=subset(df,urb=="2")
+urb3=subset(df,urb=="3")
+
+urb1_x=urb1 %>% group_by(region,province,name) %>% 
+  summarise(glassm = mean(glass), woodm=mean(wood),metalm=mean(metal),
+            platicm=mean(plASTIc),cost=mean(tc),areas=mean(area),gdpm=mean(gdp))
+
+urb1_x
+
+urb2_x=urb2 %>% group_by(region,province,name) %>% 
+  summarise(glassm = mean(glass), woodm=mean(wood),metalm=mean(metal),
+            platicm=mean(plASTIc),cost=mean(tc),areas=mean(area),gdpm=mean(gdp))
+
+urb2_x
+
+urb3_x=urb3 %>% group_by(region,province,name) %>% 
+  summarise(glassm = mean(glass), woodm=mean(wood),metalm=mean(metal),
+            platicm=mean(plASTIc),cost=mean(tc),areas=mean(area),gdpm=mean(gdp))
+
+urb3_x
+
+```
+```{r}
+
+u1=ggplot(urb1_x, aes(x=glassm, y=gdpm,xName='Cost of Disposing Glass Disturbance',yName='GDP',color=region,legendPosition="bottom")) +geom_point()+ ggtitle("GDP vs Cost of Glass Disposal Across Regions") +
+  xlab("Cost of Glass Disposal") + ylab("GDP")
+
+u2=ggplot(urb2_x, aes(x=glassm, y=gdpm,xName='Cost of Disposing Glass Disturbance',yName='GDP',color=region,legendPosition="bottom")) +geom_point()+ ggtitle("GDP vs Cost of Glass Disposal Across Regions") +
+  xlab("Cost of Glass Disposal") + ylab("GDP")
+
+u3=ggplot(urb3_x, aes(x=glassm, y=gdpm,xName='Cost of Disposing Glass Disturbance',yName='GDP',color=region,legendPosition="bottom")) +geom_point()+ ggtitle("GDP vs Cost of Glass Disposal Across Regions") +
+  xlab("Cost of Glass Disposal") + ylab("GDP")
+
+library(gridExtra)
+grid.arrange(u1, u2, u3, nrow = 2)
+
+u1
+
+```
+
+```{r}
+
+u2
+
+```
+
+
+```{r}
+
+# Selecting numerical columns
+numeric_data <-df %>% select_if(is.numeric)
+
+# Scaling the data
+scaled_data <- scale(numeric_data)
+
+set.seed(123)
+wss <- map_dbl(1:10, function(k){
+  kmeans(scaled_data, centers = k, nstart = 10)$tot.withinss
+})
+
+# Plot the Elbow Curve
+tibble(k = 1:10, wss = wss) %>%
+  ggplot(aes(k, wss)) +
+  geom_line() +
+  geom_point() +
+  labs(title = "Elbow Method", x = "Number of clusters", y = "Total within-cluster sum of squares")
+
+library(cluster)    # clustering algorithms # https://uc-r.github.io/kmeans_clustering
+library(factoextra)
+
+df2 <- df[,!names(df) %in% c("name", "province","fee")]
+
+x1=df2 %>% group_by(region)%>%summarise_all(list(mean))
+
+library(magrittr)
+#https://stackoverflow.com/questions/46165105/error-in-adding-the-first-colum#n-as-the-row-name-in-r
+x2=x1 %>% data.frame %>% set_rownames(.$region) %>% select(-region)
+
+k2 <- kmeans(x2, centers = 4, nstart = 25)
+k2
+
+fviz_cluster(k2, data = x2)
+
+```
+
+
+```{r}
+
+x2%>%
+  as_tibble() %>%
+  mutate(cluster = k2$cluster,
+         state = row.names(x2)) %>%
+  ggplot(aes(tc, cres, color = factor(cluster), label = state)) +
+  geom_text()
+
+
+```
+
+How do Waste Management Costs Vary Across Municiplaity Clusters?
+
+```{r}
+
+sumtc= x2 %>% mutate(Cluster = k2$cluster) %>% group_by(Cluster) %>%
+summarise_all("mean")
+
+p<-ggplot(data=sumtc, aes(x=Cluster, y=tc)) +geom_bar(stat="identity")
+
+p
+
+#https://stackoverflow.com/questions/32468497/creating-barplot-with-standard-errors-plotted-in-r
+#https://semba-blog.netlify.app/03/25/2020/barplot-with-errorbar-in-ggplot2/
+#https://stackoverflow.com/questions/32468497/creating-barplot-with-standard-errors-plotted-in-r
+
+```
+
+Add standard error bar
+
+```{r}
+
+addcls=sumtc= x2 %>% mutate(Cluster = k2$cluster)
+
+data_summary <- function(data, varname, groupnames){
+  require(plyr)
+  summary_func <- function(x, col){
+    c(mean = mean(x[[col]], na.rm=TRUE),
+      sd = sd(x[[col]], na.rm=TRUE))
+  }
+  data_sum<-ddply(data, groupnames, .fun=summary_func,
+                  varname)
+  data_sum <- rename(data_sum, c("mean" = varname))
+ return(data_sum)
+}
+
+df3 <- data_summary(addcls, varname="tc",                groupnames=c("Cluster"))
+
+head(df3)
+
+p <- ggplot(df3, aes(x=Cluster, y=tc)) + geom_bar(stat="identity", position=position_dodge(),fill="lightgrey") + geom_errorbar(aes(ymin=tc-sd, ymax=tc+sd), width=.2,position=position_dodge(.9))
+
+p 
+
+
+```
+
+
+```{r}
+
+p <- ggplot(df3, aes(x=Cluster, y=tc)) + geom_bar(stat="identity", position=position_dodge(),fill="lightblue") + geom_errorbar(aes(ymin=tc-sd, ymax=tc+sd), width=.2,position=position_dodge(.9))+
+    labs(y = "Total Waste Processing Cost")
+
+p 
+
+
+```
+
+
+
+
+```{r}
+
+dfx= df %>% select(region,urb,fee)
+
+dfx$urb=as.factor(dfx$urb)
+
+head(dfx)
+
+#dx2=dfx %>% data.frame %>% set_rownames(.$name) %>% select(-name)
+
+#head(dx2)
+#https://stackoverflow.com/questions/72234213/retain-all-columns-after-using-group-by-summarise-and-mutatue-dplyr-on-categori
+
+
+```
+
+```{r}
+
+dfx %>% na.omit() %>% group_by(region, urb, fee) %>% dplyr::summarise(ct=n(), .groups = 'drop_last')%>%mutate(proportion = 100 * ct/sum(ct)) %>% filter(region=="ABR") %>% ggplot(aes(x=fee, y=proportion, fill = urb)) + geom_col(position = "dodge")+facet_grid(rows = 'urb') 
+
+```
+The fee structure across areas of different levels of urbanisation in a region (ARB)
+
+```{r}
+
+dfx %>% na.omit() %>% group_by(region, urb, fee) %>% dplyr::summarise(ct=n(), .groups = 'drop_last')%>%mutate(proportion = 100 * ct/sum(ct)) %>% filter(region=="ABR") %>% ggplot(aes(x=urb, y=proportion, fill = fee)) + geom_col(position = "dodge")+facet_grid(rows = 'fee') 
+
+```
+
+```{r}
+
+dfx %>% na.omit() %>% group_by(region, urb, fee) %>% 
+dplyr::summarise(ct=n(), .groups = 'drop_last') %>% 
+mutate(proportion = 100 * ct/sum(ct)) %>% filter(region=="LOM") %>% 
+ggplot(aes(x=urb, y=proportion, fill = fee)) + 
+geom_col(position = "dodge") +
+labs(title = "Distribution of Fee Types Across Urbanization Zones in LOM",
+x = "Urbanization Zone", y = "Proportion (%)",fill = "Fee Type")
+
+
+```
+
+
+Regression Model For Modelling the Variation in Fees
+
+```{r}
+
+model <- lm(tc ~ pop + area + gdp + paper + texile + glass + wood + metal, data = df)
+summary(model)
+
+
+```
+
+Random forest regression
+
+```{r}
+
+library(randomForest)
+library(caret)
+
+set.seed(123)  # Setting a seed ensures reproducibility
+splitIndex <- createDataPartition(urb1$tc, p = 0.75, list = FALSE)
+train_data <- urb1[splitIndex,]
+test_data <- urb1[-splitIndex,]
+
+model1 <- randomForest(tc ~ ., data = train_data, ntree = 100, mtry = 3)
+print(model1)
+
+set.seed(123)  # Setting a seed ensures reproducibility
+splitIndex <- createDataPartition(urb2$tc, p = 0.75, list = FALSE)
+train_data <- urb2[splitIndex,]
+test_data <- urb2[-splitIndex,]
+
+model2 <- randomForest(tc ~ ., data = train_data, ntree = 100, mtry = 3)
+print(model2)
+
+```
+
+
+
+
+Variable Importnace
+
+```{r}
+
+# Skapar graferna
+res2            <- data.frame(varImp(model1)) # hämtar variable importance
+res2$impProcent <- round(res2$Overall/sum(res2$Overall)*100) # räknar  om importance för varje till procent av hela
+res2$var        <- rownames(res2) # kopierar radnamnet
+
+res2 %>% ggplot(aes(x=impProcent, y=reorder(var, impProcent))) +
+  geom_bar(stat="identity")
+
+
+
+```
+
+```{r}
+
+# Skapar graferna
+res2            <- data.frame(varImp(model2)) # hämtar variable importance
+res2$impProcent <- round(res2$Overall/sum(res2$Overall)*100) # räknar  om importance för varje till procent av hela
+res2$var        <- rownames(res2) # kopierar radnamnet
+
+res2 %>% ggplot(aes(x=impProcent, y=reorder(var, impProcent))) +
+  geom_bar(stat="identity")
+
+
+
+```
+
+#https://stackoverflow.com/questions/72234213/retain-all-columns-after-using-group-by-summarise-and-mutatue-dplyr-on-categori
+
+
+LP
+
+```{r}
+
+library(lpSolve)
+
+waste_data=df %>% group_by(region) %>% summarise(csor=mean(csor),
+                                              cres=mean(cres), pop=mean(pop),msw=mean(msw))
+
+sample_municipality <- waste_data %>% 
+  slice(5) 
+
+# Extract necessary values from the sample municipality
+csor <- sample_municipality$csor
+cres <- sample_municipality$cres
+pop <- sample_municipality$pop
+msw <- sample_municipality$msw
+
+# Calculate costs
+cost_sort <- csor/pop
+cost_landfill <- cres/pop
+cost_W2E <- 1.5 * cost_sort
+
+# Define the objective function
+f.obj <- c(cost_sort, cost_landfill, cost_W2E)
+
+# Define the constraints
+# The constraints are set up to ensure that the sum of the waste processed by all methods 
+# equals the total waste, and that the waste processed by each method doesn't exceed their respective limits.
+f.con <- matrix(c(1, 1, 1, 
+                  0, 0, -1, 
+                  0, -1, 0), 
+                ncol=3, byrow=TRUE)
+
+f.dir <- c("==", "<=", "<=")
+f.rhs <- c(msw, -0.4 * msw, -0.5 * msw)
+
+# Solve the LP problem
+solution <- lp(direction="min", f.obj, f.con, f.dir, f.rhs, compute.sen=TRUE)
+
+# Print the results https://stackoverflow.com/questions/72234213/retain-all-columns-after-using-group-by-summarise-and-mutatue-dplyr-on-categori
+
+print(solution$solution)
+print(solution$objval)
+
+
+```
+
+
+
+
+
